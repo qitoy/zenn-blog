@@ -78,9 +78,9 @@ require'nvim-treesitter.configs'.setup {
 自分の環境では`~/dotfiles/vim`を`~/.config/nvim`にシンボリックリンクしている。この状態で`~/.config/nvim/dpp/_generated.toml`にhome-managerで配置しようとしてもエラーが発生する。一方これを回避するために`~/dotfiles/vim/dpp/_generated.toml`に配置することも考えたが、これは美しくない。`_generated.toml`は消えても再生成できるなどの理由から`~/.cache/dpp`以下に配置するのが美しいと考えた。
 :::
 
-まずnatsukium氏のdotfilesの[nix部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/default.nix#L77-L80)、[nvim-treesitter部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/lua/plugins/misc.lua#L83-L90)を参考にして書いてみたが、runtimepathが巨大になってしまう。これでは起動時間などに影響があるので何らかの方法で圧縮する必要がある。
+まずnatsukium氏のdotfilesの[nix部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/default.nix#L77-L80)、[nvim-treesitter部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/lua/plugins/misc.lua#L83-L90)を参考にして書いてみたが、runtimepathが巨大になってしまう。dpp.vimがruntimepathの圧縮をしているのにこれではもったいないので何らかの方法で1つにまとめたい。
 
-なので`stdenv.mkDerivation`を用いてnvim-treesitter本体とパーサーを1つのディレクトリにまとめてそれを配置することにした。
+そこで`stdenv.mkDerivation`を用いてnvim-treesitter本体とパーサーを1つのディレクトリにまとめてそれを配置することにした。
 
 ## 実装
 
@@ -99,14 +99,9 @@ home.file.".cache/dpp/_generated.toml".source =
       path =
         let
           ts = pkgs.vimPlugins.nvim-treesitter;
-          ts-all = pkgs.stdenv.mkDerivation {
+          ts-all = pkgs.symlinkJoin {
             name = "ts-all";
-            srcs = [ ts ] ++ ts.withAllGrammars.dependencies;
-            sourceRoot = ".";
-            installPhase = ''
-              mkdir -p $out
-              cp -R */* $out
-            '';
+            paths = [ ts ] ++ ts.withAllGrammars.dependencies;
           };
         in
         "${ts-all}";
@@ -114,11 +109,11 @@ home.file.".cache/dpp/_generated.toml".source =
   ];
 }
 ```
-とする。こうすることにより`~/.cache/dpp/_generated.toml`にnvim-treesitter全部入りのパスを指定したtomlが配置される。これをdpp.vimが読めるようにすればよい。
+とする。こうすることにより`~/.cache/dpp/_generated.toml`にnvim-treesitter全部入りのパスを指定したプラグインを含むtomlが配置される。これをdpp.vimが読めるようにすればよい。
 
 `dpp.ts`及び`plugins_lazy.toml`に以下の変更を加える。
 ```diff ts:dpp.ts
-   [
+   
      { path: "/path/to/plugins.toml", lazy: false },
      { path: "/path/to/plugins_lazy.toml", lazy: true },
 +    { path: "~/.cache/dpp/_generated.toml", lazy: false },
@@ -167,11 +162,15 @@ home.file.".cache/dpp/_generated.toml".source =
 ```
 （一例、nvfetcherを利用してもよい）を配置し、`callPackage`をする。これを`tree-sitter-satysfi`とする。これを`plugins.nix`に渡し、以下のようにすればよい。
 ```diff nix:plugin.nix
--            srcs = [ ts ] ++ ts.withAllGrammars.dependencies;
-+            srcs = [ ts (pkgs.neovimUtils.grammarToPlugin tree-sitter-satysfi) ] ++ ts.withAllGrammars.dependencies;
+-            paths = [ ts ] ++ ts.withAllGrammars.dependencies;
++            paths = [ ts (pkgs.neovimUtils.grammarToPlugin tree-sitter-satysfi) ] ++ ts.withAllGrammars.dependencies;
 ```
 これで新たなパーサーが追加された。どうやらREADMEにある`queries/`以下をコピーする工程は必要ないらしい。
 
 # おわりに
 
 nvim-treesitterの設定自体はそこまで頻繁にいじるものでもないので完全にnix側に倒してもよかった。だがこの機会に導入してみたことが他の様々なプラグイン本体をnixで管理したくなった時に役立つのだと思う。
+
+# 変更履歴
+
+- 12/06 文言を一部修正。`ts-all`の際に`pkgs.symlinkJoin`を使うとよいとのことなのでそれを使用するように。
