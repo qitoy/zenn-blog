@@ -131,6 +131,7 @@ home.file.".cache/dpp/_generated.toml".source =
  [[plugins]]
 -repo = 'nvim-treesitter/nvim-treesitter'
 +name = 'nvim-treesitter'
++local = true
  on_event = ['BufRead', 'CursorHold']
 -hook_post_update = 'TSUpdate'
  lua_source = '''
@@ -173,4 +174,6 @@ nvim-treesitterの設定自体はそこまで頻繁にいじるものでもな�
 
 # 変更履歴
 
-- 12/06 文言を一部修正。`ts-all`の際に`pkgs.symlinkJoin`を使うとよいとのことなのでそれを使用するように。
+- 2025 01/16 `local = true`を追加しないとプラグイン更新の際にバグる。
+
+- 2024 12/06 文言を一部修正。`ts-all`の際に`pkgs.symlinkJoin`を使うとよいとのことなのでそれを使用するように。
