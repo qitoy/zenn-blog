@@ -8,7 +8,11 @@ published: true
 
 # 経緯
 
-現在neovimの管理にnixを利用しているのだが、大量にあるnvim-treesitterのパーサーもnixで管理したいと思いはじめた。しかし安易に導入するとnix式の評価に比較的時間がかかることなどから設定の利便性が下がる。そこでnixでの管理と設定の利便性を両立させるように試行錯誤し、その解決法の1つを導いた。
+現在Neovim本体の管理にnixを利用しているのだが、大量にあるnvim-treesitterのパーサーもnixで管理したいと思いはじめた。しかしプラグインの設定までもnixで管理するのはやや過剰であり、また逆に不便になる。そこでnixでの管理と設定の利便性を両立させるように試行錯誤し、その解決法の1つを導いた。
+
+:::message
+以前記した方法より簡潔だと思う手法を思い付いたため記事を大幅に書き換えた。必要であれば[こちら](https://github.com/qitoy/zenn-blog/blob/cc774336af60c4d1bd739b3efb2dfec55371bb71/articles/treesitter-with-nix.md)から過去の版を参照してほしい。
+:::
 
 # TL;DR
 
@@ -20,128 +24,79 @@ home-manager + dpp.vim
 
 # どうしたか
 
-## 導入前
-
-```ts:dpp.ts
-...
-const tomlLoad = tomlExt.actions["load"];
-
-const tomls = await Promise.all(
-  [
-    { path: "/path/to/plugins.toml", lazy: false },
-    { path: "/path/to/plugins_lazy.toml", lazy: true },
-  ].map((toml) =>.map((toml) =>
-    tomlLoad.callback({
-      denops: args.denops,
-      context,
-      options,
-      protocols,
-      extOptions: tomlOptions,
-      extParams: tomlParams,
-      actionParams: {
-        path: toml.path,
-        options: {
-          lazy: toml.lazy,
-        },
-      },
-    })
-  ),
-) as (Toml | undefined)[];
-
-// merge result
-for (const toml of tomls) {
-  for (const plugin of toml.plugins ?? []) {
-    recordPlugins[plugin.name] = plugin;
-  }
-}
-...
-```
-
-```toml:plugins_lazy.toml
-[[plugins]]
-repo = 'nvim-treesitter/nvim-treesitter'
-on_event = ['BufRead', 'CursorHold']
-hook_post_update = 'TSUpdate'
-lua_source = '''
-require'nvim-treesitter.configs'.setup {
-  ensure_installed = 'all',
-  ...
-}
-'''
-```
-
 ## アイデア
 
-2つの両立を考えた結果、nixで`~/.cache/dpp/_generated.toml`にプラグインとパーサーを吐き出し、一方`plugins_lazy.toml`内で設定を記述し、`dpp.ts`側でマージすることにした。
+2つの両立を考えた結果、nixで`~/.cache/dpp/_generated/nvim-treesitter`にパーサー入りプラグインを配置し、dpp-ext-localでローカルプラグインとして読み込むことにした。
 
-:::details _generated.tomlを~/.cache/dpp以下に配置した理由
-自分の環境では`~/dotfiles/vim`を`~/.config/nvim`にシンボリックリンクしている。この状態で`~/.config/nvim/dpp/_generated.toml`にhome-managerで配置しようとしてもエラーが発生する。一方これを回避するために`~/dotfiles/vim/dpp/_generated.toml`に配置することも考えたが、これは美しくない。`_generated.toml`は消えても再生成できるなどの理由から`~/.cache/dpp`以下に配置するのが美しいと考えた。
+:::details _generatedを~/.cache/dpp以下に配置した理由
+自分の環境では`~/dotfiles/vim`を`~/.config/nvim`にシンボリックリンクしている。この状態で`~/.config/nvim/dpp/_generated`にhome-managerで配置しようとしてもエラーが発生する。一方これを回避するために`~/dotfiles/vim/dpp/_generated`に配置することも考えたが、これは美しくない。`_generated`は消えても再生成できるなどの理由から`~/.cache/dpp`以下に配置するのが美しいと考えた。
 :::
 
-まずnatsukium氏のdotfilesの[nix部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/default.nix#L77-L80)、[nvim-treesitter部分](https://github.com/natsukium/dotfiles/blob/6566016ed187957b770561d78fb8b57c432220d9/applications/nvim/lua/plugins/misc.lua#L83-L90)を参考にして書いてみたが、runtimepathが巨大になってしまう。dpp.vimがruntimepathの圧縮をしているのにこれではもったいないので何らかの方法で1つにまとめたい。
-
-そこで`stdenv.mkDerivation`を用いてnvim-treesitter本体とパーサーを1つのディレクトリにまとめてそれを配置することにした。
+これを実現するために、`pkgs.symlinkJoin`を用いてnvim-treesitter本体とパーサーを1つのディレクトリにまとめてそれを配置することにした。
 
 ## 実装
 
-まずnix側に手を加える。`home.nix`に
-```nix:home.nix
-home.file.".cache/dpp/_generated.toml".source =
-    let tomlFormat = pkgs.formats.toml { };
-    in tomlFormat.generate "_generated.toml" (import ./plugins.nix { inherit pkgs; });
+home-managerの設定ファイルに
+```nix
+  home.file =
+    let
+      base = ".cache/dpp/_generated";
+    in
+    pkgs.lib.attrsets.foldlAttrs (
+      acc: name: drv:
+      acc // { "${base}/${name}".source = drv; }
+    ) { } (import ./plugins.nix { inherit pkgs; });
 ```
 を書き加え、`plugins.nix`を
 ```nix:plugin.nix
-{ pkgs }: {
-  plugins = [
-    {
-      name = "nvim-treesitter";
-      path =
-        let
-          ts = pkgs.vimPlugins.nvim-treesitter;
-          ts-all = pkgs.symlinkJoin {
-            name = "ts-all";
-            paths = [ ts ] ++ ts.withAllGrammars.dependencies;
-          };
-        in
-        "${ts-all}";
-    }
-  ];
+{ pkgs }:
+{
+  nvim-treesitter =
+    let
+      ts = pkgs.vimPlugins.nvim-treesitter;
+    in
+    pkgs.symlinkJoin {
+      name = "ts-all";
+      paths = [
+        ts
+      ] ++ ts.withAllGrammars.dependencies;
+    };
 }
 ```
-とする。こうすることにより`~/.cache/dpp/_generated.toml`にnvim-treesitter全部入りのパスを指定したプラグインを含むtomlが配置される。これをdpp.vimが読めるようにすればよい。
+とする。こうすることにより`~/.cache/dpp/_generated/nvim-treesitter`にnvim-treesitter全部入りのパスを指定したプラグインが配置される。これをdpp.vimが読めるようにすればよい。
 
-`dpp.ts`及び`plugins_lazy.toml`に以下の変更を加える。
-```diff ts:dpp.ts
-   
-     { path: "/path/to/plugins.toml", lazy: false },
-     { path: "/path/to/plugins_lazy.toml", lazy: true },
-+    { path: "~/.cache/dpp/_generated.toml", lazy: false },
-   ].map((toml) =>.map((toml) =>
-...
-   for (const plugin of toml.plugins ?? []) {
--    recordPlugins[plugin.name] = plugin;
-+    recordPlugins[plugin.name] = {
-+      ...plugin,
-+      ...recordPlugins[plugin.name],
-+    };
-   }
+dpp-ext-localを用いて以下のようにして読み込む。
+```ts
+const [localExt, localOptions, localParams] = await args.dpp.getExt(
+  args.denops,
+  options,
+  "local",
+) as [LocalExt | undefined, ExtOptions, LocalParams];
+if (localExt) {
+  const local = localExt.actions.local;
+
+  const localPlugins = await local.callback({
+    denops: args.denops,
+    context,
+    options,
+    protocols,
+    extOptions: localOptions,
+    extParams: localParams,
+    actionParams: {
+      directory: "~/.cache/dpp/_generated",
+    },
+  });
+
+  for (const plugin of localPlugins) {
+    if (plugin.name in recordPlugins) {
+      Object.assign(recordPlugins[plugin.name], plugin);
+    } else {
+      recordPlugins[plugin.name] = plugin;
+    }
+  }
+}
 ```
-```diff toml:plugins_lazy.toml
- [[plugins]]
--repo = 'nvim-treesitter/nvim-treesitter'
-+name = 'nvim-treesitter'
-+local = true
- on_event = ['BufRead', 'CursorHold']
--hook_post_update = 'TSUpdate'
- lua_source = '''
- require'nvim-treesitter.configs'.setup {
--  ensure_installed = 'all',
-   ...
- }
- '''
-```
-この変更で`_generated.toml`を読み、既存設定を優先させるようにマージさせ、プラグイン本体とパーサーはnixのものを使うことができる。
+また、nvim-treesitterの設定でパーサーの自動アップデートを記述している場合は削除する。この変更で既存の設定はそのままに、プラグイン本体とパーサーはnixのものを使うことができる。
 
 これでbuiltinのパーサーについては完了した。次に外部のパーサーを追加する方法を記す。
 
@@ -172,8 +127,14 @@ home.file.".cache/dpp/_generated.toml".source =
 
 nvim-treesitterの設定自体はそこまで頻繁にいじるものでもないので完全にnix側に倒してもよかった。だがこの機会に導入してみたことが他の様々なプラグイン本体をnixで管理したくなった時に役立つのだと思う。
 
-# 変更履歴
+# 余談
 
-- 2025 01/16 `local = true`を追加しないとプラグイン更新の際にバグる。
-
-- 2024 12/06 文言を一部修正。`ts-all`の際に`pkgs.symlinkJoin`を使うとよいとのことなのでそれを使用するように。
+拡張性のある実装をしているため、たとえばskkの辞書もnixで管理したくなったとき、
+```nix:plugins.nix
+skk-dict = pkgs.skkDictionaries.l;
+```
+の行を追記し、vim側で
+```vim
+const s:skk_dict = dpp#get('skk-dict').path
+```
+とすれば大きな手を加えることなく管理ができる。
