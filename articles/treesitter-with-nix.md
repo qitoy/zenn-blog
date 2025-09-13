@@ -2,9 +2,14 @@
 title: "nvim-treesitterのパーサーをnixで管理します"
 emoji: "❄️"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: [ "neovim", "nix" ]
+topics: [ "neovim", "nix", "treesitter" ]
 published: true
 ---
+
+# 2025-09-14 追記
+
+nvim-treeのmainブランチに対応した。この記事の内容が前提になっている。
+https://zenn.dev/qitoy/articles/nvim-treesitter-main
 
 # 経緯
 
