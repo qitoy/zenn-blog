@@ -17,14 +17,14 @@ https://zenn.dev/qitoy/articles/treesitter-with-nix
 
 # どうしたか
 ## nix側の設定
-nixpkgsのを直接mainブランチにするので簡潔な方法がわからなかったので自力で対応することにした。自分は[nvfetcher](https://github.com/berberman/nvfetcher)を使用しているので、
+nixpkgsのを直接mainブランチにする簡潔な方法がわからなかったので自力で対応することにした。自分は[nvfetcher](https://github.com/berberman/nvfetcher)を使用しているので、
 ```toml
 [nvim-treesitter-main]
 src.git = "https://github.com/nvim-treesitter/nvim-treesitter.git"
 src.branch = "main"
 fetch.github = "nvim-treesitter/nvim-treesitter"
 ```
-と記述した。そしたらこれをNeovimプラグインとしてビルドする。前回との差分をとると、
+と記述した。そしたらこれをNeovimプラグインとしてビルドし追加する。前回との差分をとると、
 ```diff nix:plugin.nix
 -{ pkgs }:
 +{ pkgs, sources }:
