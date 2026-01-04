@@ -73,3 +73,7 @@ nvim-treesitterは`install_dir`以下に`parser`ディレクトリと`queries`�
 
 # おわりに
 大幅に変わっていると聞いて対応を渋っていたのだが、やってみると意外とすんなりできてよかった。
+
+# 追記 (2026-01-04)
+nvim-treesitterのデフォルトブランチがmainになったことにより`nvim-treesitter-main`は不要に（nixpkgsのものを使えばよい）、またそれにnixpkgsが追従したこともあって`postBuild`が不要になった（`postBuild`で行っていた処理相当のことをやっている）。
+https://github.com/NixOS/nixpkgs/blob/71f1b82b973b6eb347fe9332099ab3cf14cd6e79/pkgs/applications/editors/vim/plugins/nvim-treesitter/overrides.nix#L28-L34
